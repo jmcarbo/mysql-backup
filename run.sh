@@ -95,6 +95,11 @@ cat <<EOF >"$HOME/.mc/config.json"
 }
 EOF
 	mc cp "${INIT_RESTORE_URL}" /backup/restore_target.sql 	
+    	until nc -z $MYSQL_HOST $MYSQL_PORT
+    	do
+        	echo "waiting database container..."
+        	sleep 1
+    	done
 	/restore.sh /backup/restore_target.sql
 fi
 
