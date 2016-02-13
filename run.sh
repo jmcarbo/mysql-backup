@@ -74,6 +74,28 @@ elif [ -n "${INIT_RESTORE_LATEST}" ]; then
         sleep 1
     done
     ls -d -1 /backup/* | tail -1 | xargs /restore.sh
+elif [ -n "${INIT_RESTORE_URL}" ]; then
+	MINIO_HOST=${MINIO_HOST:-myminio}
+	[ -z "${MINIO_HOST_URL}" ] && { echo "=> MINIO_HOST_URL cannot be empty" && exit 1; }
+	[ -z "${MINIO_ACCESS_KEY}" ] && { echo "=> MINIO_ACCESS_KEY cannot be empty" && exit 1; }
+	[ -z "${MINIO_SECRET_KEY}" ] && { echo "=> MINIO_SECRET_KEY cannot be empty" && exit 1; }
+
+	mkdir -p "$HOME/.mc"
+cat <<EOF >"$HOME/.mc/config.json"
+{
+	"version": "7",
+	"hosts": {
+	"${MINIO_HOST}": {
+	"url": "${MINIO_HOST_URL}",
+	"accessKey": "${MINIO_ACCESS_KEY}",
+	"secretKey": "${MINIO_SECRET_KEY}",
+	"api": "S3v4"
+	}
+	}
+}
+EOF
+	mc cp "${INIT_RESTORE_URL}" /backup/restore_target.sql 	
+	/restore.sh /backup/restore_target.sql
 fi
 
 echo "${CRON_TIME} /backup.sh >> /mysql_backup.log 2>&1" > /crontab.conf

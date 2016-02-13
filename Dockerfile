@@ -3,6 +3,8 @@ MAINTAINER Tutum Labs <support@tutum.co>
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends mysql-client && \
+    curl https://dl.minio.io/client/mc/release/linux-amd64/mc > /usr/local/bin/mc && \
+    chmod +x /usr/local/bin/mc && \ 
     mkdir /backup
 
 ENV CRON_TIME="0 0 * * *" \
