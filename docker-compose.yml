@@ -1,0 +1,34 @@
+minio:
+  image: minio/minio
+  volumes:
+    #- $PWD/export:/export
+    - $PWD/minioconf:/.minio
+
+mysql:
+  image: mysql
+  environment:
+    MYSQL_ROOT_PASSWORD: pass
+    MYSQL_DATABASE: testback
+    MYSQL_USER: test
+    MYSQL_PASSWORD: pass
+  volumes:
+    - mysqltest:/var/lib/mysql
+
+backupdb:
+  environment:
+    CRON_TIME: '* * * * *'
+    #INIT_RESTORE_URL: myminio/databases/blabla.sql
+    INIT_BACKUP: 'true'
+    MINIO_ACCESS_KEY: NKZ1L29S4GP01J6IOD6F
+    MINIO_HOST: myminio
+    MINIO_HOST_URL: http://minio:9000
+    MINIO_SECRET_KEY: 5w2WzW3Y6wNQbdQEADYD2USWlvx9vh4j+fgYOd4b
+    MINIO_BUCKET: testdb
+    MYSQL_USER: root
+    MYSQL_PASS: pass
+  build: .
+  links:
+    - mysql:mysql
+    - minio:minio
+  volumes:
+  - backuptest:/backup

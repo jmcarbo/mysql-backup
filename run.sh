@@ -4,6 +4,7 @@ if [ "${MYSQL_ENV_MYSQL_PASS}" == "**Random**" ]; then
         unset MYSQL_ENV_MYSQL_PASS
 fi
 
+RESTIC_PASSWORD=${RESTIC_PASSWORD:-$(< /dev/urandom tr -dc _A-Z-a-z-0-9 | head -c16)}
 MYSQL_HOST=${MYSQL_PORT_3306_TCP_ADDR:-${MYSQL_HOST}}
 MYSQL_HOST=${MYSQL_PORT_1_3306_TCP_ADDR:-${MYSQL_HOST}}
 MYSQL_PORT=${MYSQL_PORT_3306_TCP_PORT:-${MYSQL_PORT}}
@@ -18,6 +19,54 @@ MYSQL_PASS=${MYSQL_PASS:-${MYSQL_ENV_MYSQL_PASS}}
 
 BACKUP_CMD="mysqldump -h${MYSQL_HOST} -P${MYSQL_PORT} -u${MYSQL_USER} -p${MYSQL_PASS} ${EXTRA_OPTS} ${MYSQL_DB} > /backup/"'${BACKUP_NAME}'
 
+if [ -n ${MINIO_HOST} ]; then
+	[ -z "${MINIO_HOST_URL}" ] && { echo "=> MINIO_HOST_URL cannot be empty" && exit 1; }
+	[ -z "${MINIO_ACCESS_KEY}" ] && { echo "=> MINIO_ACCESS_KEY cannot be empty" && exit 1; }
+	[ -z "${MINIO_SECRET_KEY}" ] && { echo "=> MINIO_SECRET_KEY cannot be empty" && exit 1; }
+	[ -z "${MINIO_BUCKET}" ] && { echo "=> MINIO_BUCKET cannot be empty" && exit 1; }
+
+	mkdir -p "$HOME/.mc"
+cat <<EOF >"$HOME/.mc/config.json"
+{
+	"version": "7",
+	"hosts": {
+	"${MINIO_HOST}": {
+	"url": "${MINIO_HOST_URL}",
+	"accessKey": "${MINIO_ACCESS_KEY}",
+	"secretKey": "${MINIO_SECRET_KEY}",
+	"api": "S3v4"
+	}
+	}
+}
+EOF
+	echo $RESTIC_PASSWORD
+
+	if mc mb "${MINIO_HOST}/${MINIO_BUCKET}"; 
+	then 
+		echo "Bucket ${MINIO_BUCKET} created"; 
+		echo "$RESTIC_PASSWORD"	| mc pipe "${MINIO_HOST}/${MINIO_BUCKET}/restic_password.txt"
+		mc mb "${MINIO_HOST}/${MINIO_BUCKET}restic"
+		export AWS_ACCESS_KEY_ID=${MINIO_ACCESS_KEY}
+		export AWS_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY}
+		export RESTIC_PASSWORD
+		restic -r "s3:${MINIO_HOST_URL}/${MINIO_BUCKET}restic" init
+	else 
+		echo "Bucket ${MINIO_BUCKET} already exists"; 
+		RESTIC_PASSWORD=$(mc cat "${MINIO_HOST}/${MINIO_BUCKET}/restic_password.txt")
+	fi
+
+	echo $RESTIC_PASSWORD
+	BACKUP_RESTIC_CMD="/usr/local/bin/restic backup /backup"
+	export RESTIC_PASSWORD=$(mc cat "${MINIO_HOST}/${MINIO_BUCKET}/restic_password.txt")
+cat <<EOF >>/root/.bashrc
+export AWS_ACCESS_KEY_ID=${MINIO_ACCESS_KEY}
+export AWS_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY}
+export RESTIC_PASSWORD=$(mc cat "${MINIO_HOST}/${MINIO_BUCKET}/restic_password.txt")
+export RESTIC_REPOSITORY=s3:${MINIO_HOST_URL}/${MINIO_BUCKET}restic
+EOF
+
+fi
+
 echo "=> Creating backup script"
 rm -f /backup.sh
 cat <<EOF >> /backup.sh
@@ -26,9 +75,18 @@ MAX_BACKUPS=${MAX_BACKUPS}
 
 BACKUP_NAME=\$(date +\%Y.\%m.\%d.\%H\%M\%S).sql
 
+export MINIO_HOST=${MINIO_HOST}
+if [ -n "\${MINIO_HOST}" ]; then
+	export AWS_ACCESS_KEY_ID=${MINIO_ACCESS_KEY}
+	export AWS_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY}
+	export RESTIC_PASSWORD=${RESTIC_PASSWORD}
+	export RESTIC_REPOSITORY=s3:${MINIO_HOST_URL}/${MINIO_BUCKET}restic
+fi
+
 echo "=> Backup started: \${BACKUP_NAME}"
 if ${BACKUP_CMD} ;then
     echo "   Backup succeeded"
+    ${BACKUP_RESTIC_CMD}
 else
     echo "   Backup failed"
     rm -rf /backup/\${BACKUP_NAME}
@@ -50,6 +108,7 @@ echo "=> Creating restore script"
 rm -f /restore.sh
 cat <<EOF >> /restore.sh
 #!/bin/bash
+
 echo "=> Restore database from \$1"
 if mysql -h${MYSQL_HOST} -P${MYSQL_PORT} -u${MYSQL_USER} -p${MYSQL_PASS} < \$1 ;then
     echo "   Restore succeeded"
@@ -65,6 +124,11 @@ tail -F /mysql_backup.log &
 
 if [ -n "${INIT_BACKUP}" ]; then
     echo "=> Create a backup on the startup"
+    until nc -z $MYSQL_HOST $MYSQL_PORT
+    do
+        echo "waiting database container..."
+        sleep 1
+    done
     /backup.sh
 elif [ -n "${INIT_RESTORE_LATEST}" ]; then
     echo "=> Restore lates backup"
@@ -75,25 +139,6 @@ elif [ -n "${INIT_RESTORE_LATEST}" ]; then
     done
     ls -d -1 /backup/* | tail -1 | xargs /restore.sh
 elif [ -n "${INIT_RESTORE_URL}" ]; then
-	MINIO_HOST=${MINIO_HOST:-myminio}
-	[ -z "${MINIO_HOST_URL}" ] && { echo "=> MINIO_HOST_URL cannot be empty" && exit 1; }
-	[ -z "${MINIO_ACCESS_KEY}" ] && { echo "=> MINIO_ACCESS_KEY cannot be empty" && exit 1; }
-	[ -z "${MINIO_SECRET_KEY}" ] && { echo "=> MINIO_SECRET_KEY cannot be empty" && exit 1; }
-
-	mkdir -p "$HOME/.mc"
-cat <<EOF >"$HOME/.mc/config.json"
-{
-	"version": "7",
-	"hosts": {
-	"${MINIO_HOST}": {
-	"url": "${MINIO_HOST_URL}",
-	"accessKey": "${MINIO_ACCESS_KEY}",
-	"secretKey": "${MINIO_SECRET_KEY}",
-	"api": "S3v4"
-	}
-	}
-}
-EOF
 	mc cp "${INIT_RESTORE_URL}" /backup/restore_target.sql 	
     	until nc -z $MYSQL_HOST $MYSQL_PORT
     	do
