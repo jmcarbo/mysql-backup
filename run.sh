@@ -25,10 +25,16 @@ if [ -n ${MINIO_HOST} ]; then
 	[ -z "${MINIO_SECRET_KEY}" ] && { echo "=> MINIO_SECRET_KEY cannot be empty" && exit 1; }
 	[ -z "${MINIO_BUCKET}" ] && { echo "=> MINIO_BUCKET cannot be empty" && exit 1; }
 
+while ! curl -s ${MINIO_HOST_URL}
+do
+	echo "waiting for minio container..."
+        sleep 1
+done
+
 	mkdir -p "$HOME/.mc"
 cat <<EOF >"$HOME/.mc/config.json"
 {
-	"version": "7",
+	"version": "8",
 	"hosts": {
 	"${MINIO_HOST}": {
 	"url": "${MINIO_HOST_URL}",
@@ -41,22 +47,24 @@ cat <<EOF >"$HOME/.mc/config.json"
 EOF
 	echo $RESTIC_PASSWORD
 
-	if mc mb "${MINIO_HOST}/${MINIO_BUCKET}"; 
+	mc ls "${MINIO_HOST}/${MINIO_BUCKET}" 
+	if [ $? -eq 0 ]
 	then 
-		echo "Bucket ${MINIO_BUCKET} created"; 
+		echo "Bucket ${MINIO_BUCKET} already exists"; 
+		RESTIC_PASSWORD=$(mc cat "${MINIO_HOST}/${MINIO_BUCKET}/restic_password.txt")
+	else 
+		mc mb "${MINIO_HOST}/${MINIO_BUCKET}" 
+		echo "Bucket ${MINIO_BUCKET} created" 
 		echo "$RESTIC_PASSWORD"	| mc pipe "${MINIO_HOST}/${MINIO_BUCKET}/restic_password.txt"
 		mc mb "${MINIO_HOST}/${MINIO_BUCKET}restic"
 		export AWS_ACCESS_KEY_ID=${MINIO_ACCESS_KEY}
 		export AWS_SECRET_ACCESS_KEY=${MINIO_SECRET_KEY}
 		export RESTIC_PASSWORD
 		restic -r "s3:${MINIO_HOST_URL}/${MINIO_BUCKET}restic" init
-	else 
-		echo "Bucket ${MINIO_BUCKET} already exists"; 
-		RESTIC_PASSWORD=$(mc cat "${MINIO_HOST}/${MINIO_BUCKET}/restic_password.txt")
 	fi
 
 	echo $RESTIC_PASSWORD
-	BACKUP_RESTIC_CMD="/usr/local/bin/restic backup /backup"
+	BACKUP_RESTIC_CMD="/usr/local/bin/restic backup /backup && /usr/local/bin/restic forget ${RESTIC_FORGET} && /usr/local/bin/restic prune"
 	export RESTIC_PASSWORD=$(mc cat "${MINIO_HOST}/${MINIO_BUCKET}/restic_password.txt")
 cat <<EOF >>/root/.bashrc
 export AWS_ACCESS_KEY_ID=${MINIO_ACCESS_KEY}

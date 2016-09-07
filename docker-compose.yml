@@ -1,8 +1,8 @@
 minio:
   image: minio/minio
-  volumes:
-    #- $PWD/export:/export
-    - $PWD/minioconf:/.minio
+  environment:
+    MINIO_ACCESS_KEY: NKZ1L29S4GP01J6IOD6F
+    MINIO_SECRET_KEY: 5w2WzW3Y6wNQbdQEADYD2USWlvx9vh4j+fgYOd4b
 
 mysql:
   image: mysql
@@ -26,6 +26,8 @@ backupdb:
     MINIO_BUCKET: testdb
     MYSQL_USER: root
     MYSQL_PASS: pass
+    RESTIC_FORGET: -l 3
+    MAX_BACKUPS: 4
   build: .
   links:
     - mysql:mysql

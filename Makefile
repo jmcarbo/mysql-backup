@@ -1,7 +1,7 @@
+bla = $(shell pwd)
+
 build:
 	docker build -t mysql-backup .
 
 buildrestic:
-	git clone https://github.com/restic/restic.git || true
-	docker run --rm -v "$$PWD/restic":/usr/src/restic -w /usr/src/restic golang go run build.go
-	cp restic/restic restic_app
+	docker run --rm -v "$(bla):/data" golang /bin/bash -c "git clone https://github.com/restic/restic && cd restic && go run build.go && cp restic /data/restic_app"
