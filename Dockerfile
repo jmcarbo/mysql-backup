@@ -1,5 +1,5 @@
 FROM ubuntu
-MAINTAINER Tutum Labs <support@tutum.co>
+MAINTAINER Joan Marc Carbo Arnau <jmcarbo@gmail.com>
 
 RUN apt-get update && \
     apt-get install -y mysql-client curl netcat cron && \
